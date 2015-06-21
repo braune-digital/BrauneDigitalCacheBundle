@@ -1,0 +1,22 @@
+{
+    "name" : "braune-digital/cache-bundle",
+    "description" : "Cache Bundle",
+    "type" : "symfony-bundle",
+    "authors" : [{
+        "name" : "Braune Digital GmbH",
+        "email" : "mail@braune-digital.com"
+    }],
+    "keywords" : [
+        "cache bundle"
+    ],
+    "license" : [
+        "MIT"
+    ],
+    "require" : {
+    },
+    "autoload" : {
+        "psr-4" : {
+            "BrauneDigital\\CacheBundle\\" : ""
+        }
+    }
+}
