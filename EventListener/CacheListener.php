@@ -2,6 +2,7 @@
 
 namespace BrauneDigital\CacheBundle\EventListener;
 
+use BrauneDigital\CacheBundle\Adapter\FileSystemCache;
 use Doctrine\ORM\Event\LifecycleEventArgs;
 use Pagerfanta\Pagerfanta;
 use Sonata\Cache\Adapter\Cache\PRedisCache;
@@ -34,51 +35,15 @@ class CacheListener extends ContainerAware {
     }
 
 	/**
-	 * @param GetResponseEvent $event
-	 */
-	public function onKernelRequest(GetResponseEvent $event) {
-
-		$debug = in_array($this->container->get('kernel')->getEnvironment(), array('test', 'dev'));
-
-		$format = $event->getRequest()->getRequestFormat();
-
-		$router = $this->container->get('router');
-		$route = $router->match($event->getRequest()->getPathInfo());
-		if ($this->isCacheable($route['_route'])) {
-			$cache = $this->container->get('sonata.cache.memcached');
-			$keys = array(
-				'route' => $route['_route'],
-				'request_uri' => $event->getRequest()->getRequestUri(),
-				'env' => $this->container->get('kernel')->getEnvironment()
-			);
-			if ($cache->has($keys)) {
-				$event->setResponse(new Response($cache->get($keys)->getData(), 200));
-				$event->stopPropagation();
-				//$cache->flushAll();
-
-
-			}
-		}
-
-	}
-
-	/**
 	 * @param FilterResponseEvent $event
 	 */
 	public function onKernelResponse(FilterResponseEvent $event) {
 
 		$route = $event->getRequest()->get('_route');
+		$cache = new FileSystemCache($this->container->get('kernel'));
 		if ($this->isCacheable($route)) {
-			$cache = $this->container->get('sonata.cache.memcached');
-			$keys = array(
-				'route' => $route,
-				'request_uri' => $event->getRequest()->getRequestUri(),
-				'env' => $this->container->get('kernel')->getEnvironment()
-			);
-			if ($this->isCacheable($route) && !$cache->has($keys)) {
-				$content = $event->getResponse()->getContent();
-				$cache->set($keys, $content);
-			}
+			$key = md5($event->getRequest()->getRealMethod() . '-' . $event->getRequest()->getPathInfo());
+			$cache->store($key, $event->getResponse()->getContent());
 		}
 	}
 
@@ -87,8 +52,24 @@ class CacheListener extends ContainerAware {
 	 * @return bool
 	 */
 	public function isCacheable($route) {
+
+		if ($this->container->get('kernel')->getEnvironment() == 'dev') {
+			return false;
+		}
+
 		$config = $this->container->getParameter('braunedigital_cache');
-		if (array_key_exists($route, $config['routes']) && $config['routes'][$route]['enabled']) {
+
+		$match = array_filter($config['routes'], function($r) use($route) {
+			if ($r['enabled']) {
+				if (preg_match($r['route'], $route)) {
+					return true;
+				} else {
+					return false;
+				}
+			}
+		});
+
+		if (count($match) > 0) {
 			return true;
 		}
 		return false;
