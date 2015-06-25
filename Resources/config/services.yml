@@ -1,6 +1,9 @@
 services:
-    braunedigital.cache.listener.cache:
-        class: BrauneDigital\CacheBundle\EventListener\CacheListener
-        arguments: [@service_container]
-        tags:
-            - { name: kernel.event_listener, event: kernel.response, method: onKernelResponse, priority: 99999 }
+#    braunedigital.cache.listener.cache:
+#        class: BrauneDigital\CacheBundle\EventListener\CacheListener
+#        arguments: [@service_container]
+#        tags:
+#            - { name: kernel.event_listener, event: kernel.response, method: onKernelResponse, priority: 99999 }
+     braunedigital.cache.queue:
+         class: BrauneDigital\CacheBundle\Cache\QueueManager
+         arguments: [@service_container]

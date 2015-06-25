@@ -34,6 +34,10 @@ class Configuration implements ConfigurationInterface
 						->end()
 					->end()
 				->end()
+				->scalarNode('php_executable')
+					->defaultValue('/usr/bin/php')
+					->cannotBeEmpty()
+				->end()
 			->end()
 		;
 
