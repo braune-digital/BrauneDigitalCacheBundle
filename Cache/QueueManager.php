@@ -84,7 +84,8 @@ class QueueManager
 	public function triggerProcess() {
 		$config = $this->container->getParameter('braune_digital_cache');
 		$process = new Process($config['php_executable'] . ' ' . $this->container->get('kernel')->getRootDir() . '/console braunedigital:cache:processqueue');
-		$process->start();
+		$process->disableOutput();
+		$process->run();
 	}
 
 }

@@ -1,9 +1,13 @@
 services:
-#    braunedigital.cache.listener.cache:
-#        class: BrauneDigital\CacheBundle\EventListener\CacheListener
-#        arguments: [@service_container]
-#        tags:
-#            - { name: kernel.event_listener, event: kernel.response, method: onKernelResponse, priority: 99999 }
-     braunedigital.cache.queue:
-         class: BrauneDigital\CacheBundle\Cache\QueueManager
-         arguments: [@service_container]
+    braunedigital.cache.listener.cache:
+        class: BrauneDigital\CacheBundle\EventListener\CacheListener
+        arguments: [@service_container]
+        tags:
+            - { name: doctrine.event_listener, event: postPersist }
+            - { name: doctrine.event_listener, event: prePersist }
+            - { name: doctrine.event_listener, event: postUpdate }
+            - { name: doctrine.event_listener, event: preUpdate }
+
+    braunedigital.cache.queue:
+        class: BrauneDigital\CacheBundle\Cache\QueueManager
+        arguments: [@service_container]

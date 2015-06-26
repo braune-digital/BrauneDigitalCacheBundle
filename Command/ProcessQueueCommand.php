@@ -26,7 +26,6 @@ class ProcessQueueCommand extends ContainerAwareCommand
 
 	protected function execute(InputInterface $input, OutputInterface $output)
 	{
-
 		$this->queueManager = $this->getContainer()->get('braunedigital.cache.queue');
 		$this->queueManager->processQueue();
 

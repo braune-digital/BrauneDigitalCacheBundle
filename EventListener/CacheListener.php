@@ -2,10 +2,10 @@
 
 namespace BrauneDigital\CacheBundle\EventListener;
 
-use BrauneDigital\CacheBundle\Adapter\FileSystemCache;
+use Application\AppBundle\Entity\Offer;
 use Doctrine\ORM\Event\LifecycleEventArgs;
-use Pagerfanta\Pagerfanta;
-use Sonata\Cache\Adapter\Cache\PRedisCache;
+use Application\AppBundle\Entity\OfferTranslation;
+use FOS\HttpCacheBundle\Configuration\InvalidatePath;
 use Symfony\Component\DependencyInjection\ContainerAware;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\RequestStack;
@@ -14,65 +14,130 @@ use Symfony\Component\HttpKernel\Event\FilterResponseEvent;
 use Symfony\Component\HttpKernel\Event\GetResponseEvent;
 use Symfony\Component\HttpKernel\Event\GetResponseForControllerResultEvent;
 use Symfony\Component\HttpKernel\Kernel;
+use Symfony\Component\PropertyAccess\Exception\UnexpectedTypeException;
 use Symfony\Component\Routing\RouterInterface;
+use Symfony\Component\PropertyAccess\PropertyAccess;
 
 
 class CacheListener extends ContainerAware {
 
-	/**
-	 * @var ContainerInterface
-	 */
-    protected $container;
-
+	protected $container;
+	protected $cacheManager;
+	protected $router;
+	protected $entity;
+	protected $locales;
+	protected $changeset;
+	protected $accessor;
 
 	/**
 	 * @param ContainerInterface $container
 	 */
-    public function __construct(ContainerInterface $container)
-    {
+	public function __construct(ContainerInterface $container)
+	{
 		$this->container = $container;
-
-    }
+	}
 
 	/**
-	 * @param FilterResponseEvent $event
+	 * @param LifecycleEventArgs $args
 	 */
-	public function onKernelResponse(FilterResponseEvent $event) {
+	public function prePersist(LifecycleEventArgs $args) {
+		$this->preUpdate($args);
+	}
 
-		$route = $event->getRequest()->get('_route');
-		$cache = new FileSystemCache($this->container->get('kernel'));
-		if ($this->isCacheable($route)) {
-			$key = md5($event->getRequest()->getRealMethod() . '-' . $event->getRequest()->getPathInfo());
-			$cache->store($key, $event->getResponse()->getContent());
+	/**
+	 * @param LifecycleEventArgs $args
+	 */
+	public function postPersist(LifecycleEventArgs $args) {
+		$this->postUpdate($args);
+	}
+
+	/**
+	 * @param LifecycleEventArgs $args
+	 */
+	public function preUpdate(LifecycleEventArgs $args) {
+
+		$this->prepare($args);
+		$cacheConfiguration = $this->container->getParameter('braune_digital_cache');
+
+		if (count($this->changeset) > 0) {
+			foreach ($cacheConfiguration['entities'] as $entityConfig) {
+				$entityIsTranslation = false;
+				if ($entityConfig['check_translation']) {
+					$entityIsTranslation = (get_class($this->entity) == $entityConfig['entity'] . 'Translation') ? true : false;
+				}
+				if (get_class($this->entity) == $entityConfig['entity'] or $entityIsTranslation) {
+					if ($entityIsTranslation) {
+						$this->entity = $this->entity->getTranslatable();
+					}
+					foreach ($entityConfig['routes'] as $route => $routeConfiguration) {
+						$listenToAllFields = false;
+						if (isset($routeConfiguration['listenTo'])) {
+							$routeConfiguration['listenTo'] = explode('|', $routeConfiguration['listenTo']);
+						} else {
+							$listenToAllFields = true;
+						}
+						if ($listenToAllFields or $this->fieldHasChanched($routeConfiguration['listenTo'])) {
+
+							if (isset($routeConfiguration['mapping']) && count($routeConfiguration['mapping']) > 0) {
+								foreach ($routeConfiguration['mapping'] as $param => $accessorPath) {
+									$routeConfiguration['mapping'][$param] = $this->accessor->getValue($this->entity, $accessorPath);
+								}
+							}
+
+							foreach ($this->locales as $locale) {
+								try {
+
+									$params = array('_locale' => $locale);
+									if (isset($routeConfiguration['mapping']) && count($routeConfiguration['mapping']) > 0) {
+										$params = array_merge(array(
+											'_locale' => $locale
+										), $routeConfiguration['mapping']);
+									}
+
+									$path = $this->router->generate($route, $params, true);
+									$this->cacheManager->refreshPath($path);
+
+								} catch (UnexpectedTypeException $e) {}
+							}
+						}
+					}
+				}
+			}
 		}
 	}
 
 	/**
-	 * @param $route
+	 * @param LifecycleEventArgs $args
+	 */
+	public function postUpdate(LifecycleEventArgs $args) {
+
+
+	}
+
+	/**
+	 * @param array $fields
 	 * @return bool
 	 */
-	public function isCacheable($route) {
-
-		if ($this->container->get('kernel')->getEnvironment() == 'dev') {
-			return false;
-		}
-
-		$config = $this->container->getParameter('braunedigital_cache');
-
-		$match = array_filter($config['routes'], function($r) use($route) {
-			if ($r['enabled']) {
-				if (preg_match($r['route'], $route)) {
-					return true;
-				} else {
-					return false;
-				}
+	private function fieldHasChanched(array $fields) {
+		foreach ($fields as $field) {
+			if (in_array($field, $this->changeset)) {
+				return true;
 			}
-		});
-
-		if (count($match) > 0) {
-			return true;
 		}
 		return false;
+	}
+
+	/**
+	 * @param LifecycleEventArgs $args
+	 */
+	private function prepare(LifecycleEventArgs $args) {
+
+		$this->cacheManager = $this->container->get('fos_http_cache.cache_manager');
+		$this->router = $this->container->get('router');
+		$this->entity = $args->getEntity();
+		$this->accessor = PropertyAccess::createPropertyAccessorBuilder()->enableMagicCall()->getPropertyAccessor();
+		$this->changeset = array_keys($args->getEntityManager()->getUnitOfWork()->getEntityChangeSet($this->entity));
+		$this->locales = $this->container->getParameter('locales');
 
 	}
 
