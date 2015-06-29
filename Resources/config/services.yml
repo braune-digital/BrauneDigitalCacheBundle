@@ -7,7 +7,3 @@ services:
             - { name: doctrine.event_listener, event: prePersist }
             - { name: doctrine.event_listener, event: postUpdate }
             - { name: doctrine.event_listener, event: preUpdate }
-
-    braunedigital.cache.queue:
-        class: BrauneDigital\CacheBundle\Cache\QueueManager
-        arguments: [@service_container]
