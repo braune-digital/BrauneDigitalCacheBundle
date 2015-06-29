@@ -122,29 +122,27 @@ class CacheListener extends ContainerAware {
 										}
 									}
 
+									$routeConfiguration = $cacheConfiguration[$entityIndex]['routes'][$route];
+
 									/**
 									 * Iterate over locales
 									 */
 									foreach ($this->locales as $locale) {
-										try {
+										/**
+										 * Merge mapping with locale
+										 */
+										$params = array('_locale' => $locale);
+										if (isset($routeConfiguration['mapping']) && count($routeConfiguration['mapping']) > 0) {
+											$params = array_merge(array(
+												'_locale' => $locale
+											), $routeConfiguration['mapping']);
+										}
 
-											/**
-											 * Merge mapping with locale
-											 */
-											$params = array('_locale' => $locale);
-											if (isset($routeConfiguration['mapping']) && count($routeConfiguration['mapping']) > 0) {
-												$params = array_merge(array(
-													'_locale' => $locale
-												), $routeConfiguration['mapping']);
-											}
-
-											/**
-											 * Generate and refresh routes
-											 */
-											$path = $this->router->generate($route, $params, true);
-											$this->cacheManager->refreshPath($path);
-
-										} catch (UnexpectedTypeException $e) {}
+										/**
+										 * Generate and refresh routes
+										 */
+										$path = $this->router->generate($route, $params, true);
+										$this->cacheManager->refreshPath($path);
 									}
 								} catch (UnexpectedTypeException $e) {}
 							}
