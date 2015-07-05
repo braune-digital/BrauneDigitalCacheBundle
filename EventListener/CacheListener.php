@@ -5,6 +5,7 @@ namespace BrauneDigital\CacheBundle\EventListener;
 use Application\AppBundle\Entity\Offer;
 use Doctrine\ORM\Event\LifecycleEventArgs;
 use Application\AppBundle\Entity\OfferTranslation;
+use Doctrine\ORM\Event\PostFlushEventArgs;
 use FOS\HttpCacheBundle\Configuration\InvalidatePath;
 use Symfony\Component\DependencyInjection\ContainerAware;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -13,6 +14,7 @@ use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Event\FilterResponseEvent;
 use Symfony\Component\HttpKernel\Event\GetResponseEvent;
 use Symfony\Component\HttpKernel\Event\GetResponseForControllerResultEvent;
+use Symfony\Component\HttpKernel\HttpKernelInterface;
 use Symfony\Component\HttpKernel\Kernel;
 use Symfony\Component\PropertyAccess\Exception\UnexpectedTypeException;
 use Symfony\Component\Routing\RouterInterface;
@@ -28,6 +30,7 @@ class CacheListener extends ContainerAware {
 	protected $locales;
 	protected $changeset;
 	protected $accessor;
+	protected $newPath = array();
 
 	/**
 	 * @param ContainerInterface $container
@@ -41,7 +44,7 @@ class CacheListener extends ContainerAware {
 	 * @param LifecycleEventArgs $args
 	 */
 	public function prePersist(LifecycleEventArgs $args) {
-		$this->preUpdate($args);
+
 	}
 
 	/**
@@ -54,7 +57,12 @@ class CacheListener extends ContainerAware {
 	/**
 	 * @param LifecycleEventArgs $args
 	 */
-	public function preUpdate(LifecycleEventArgs $args) {
+	public function postUpdate(LifecycleEventArgs $args) {
+
+
+		if (get_class($args->getEntity()) == 'BrauneDigital\RedirectBundle\Entity\Redirect') {
+			return;
+		}
 
 		$this->prepare($args);
 		$cacheConfiguration = $this->container->getParameter('braune_digital_cache');
@@ -137,7 +145,6 @@ class CacheListener extends ContainerAware {
 								$this->process($invalidateEntities, $cacheConfiguration, $routeConfiguration, $entityIndex, $route, 'invalidate');
 							}
 
-
 						}
 					}
 				}
@@ -148,7 +155,7 @@ class CacheListener extends ContainerAware {
 	/**
 	 * @param LifecycleEventArgs $args
 	 */
-	public function postUpdate(LifecycleEventArgs $args) {
+	public function preUpdate(LifecycleEventArgs $args) {
 
 
 	}
@@ -172,8 +179,6 @@ class CacheListener extends ContainerAware {
 				if (isset($routeConfiguration['mapping']) && count($routeConfiguration['mapping']) > 0) {
 					foreach ($routeConfiguration['mapping'] as $param => $accessorPath) {
 						$cacheConfiguration['entities'][$entityIndex]['routes'][$route]['mapping'][$param] = $this->accessor->getValue($entity, $accessorPath);
-
-
 					}
 				}
 
@@ -197,13 +202,21 @@ class CacheListener extends ContainerAware {
 					 * Generate and refresh/invalidate routes
 					 */
 					$path = $this->router->generate($route, $params, true);
+					$pathRelative = $this->router->generate($route, $params, false);
 					switch($type) {
 						case 'refresh':
+							$this->newPath[$locale] = $pathRelative;
 							$this->cacheManager->refreshPath($path);
 							break;
 						case 'invalidate':
-
 							$this->cacheManager->invalidatePath($path);
+							if ($this->newPath) {
+								try {
+									$redirectManager = $this->container->get('braunedigital.redirect.manager');
+									$redirectManager->create($pathRelative, $this->newPath[$locale], Response::HTTP_MOVED_PERMANENTLY);
+								} catch(\Exception $e) {}
+							}
+
 							break;
 					}
 
@@ -214,6 +227,7 @@ class CacheListener extends ContainerAware {
 		}
 
 	}
+
 
 	/**
 	 * @param array $fields
