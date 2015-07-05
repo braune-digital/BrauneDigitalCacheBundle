@@ -79,6 +79,7 @@ class CacheListener extends ContainerAware {
 
 				if (get_class($this->entity) == $entityConfig['entity'] or $entityIsTranslation) {
 					if ($entityIsTranslation) {
+						$translationEntity = $this->entity;
 						$this->entity = $this->entity->getTranslatable();
 					}
 
@@ -102,50 +103,41 @@ class CacheListener extends ContainerAware {
 							/**
 							 * Get the original entity to update routes with old data.
 							 */
-							$entities = array($this->entity);
-							if ($routeConfiguration['refresh_with_original_params']) {
-								$entities[] = (object) $args->getEntityManager()->getUnitOfWork()->getOriginalEntityData($this->entity);
-							}
+							$refreshEntities = array($this->entity);
+							$invalidateEntities = array();
 
 							/**
-							 * Iterate over the entities
+							 * Check if there are routes from old properties that should be invalidated
 							 */
-							foreach ($entities as $entity) {
+							if ($routeConfiguration['refresh_with_original_params'] || $routeConfiguration['invalidate_with_original_params']) {
+								if ($entityIsTranslation) {
+									$changeset = $args->getEntityManager()->getUnitOfWork()->getEntityChangeSet($translationEntity);
+								} else {
+									$changeset = $args->getEntityManager()->getUnitOfWork()->getEntityChangeSet($this->entity);
+								}
 
-								/**
-								 * Use accessor component to get entity properties
-								 */
-								try {
-									if (isset($routeConfiguration['mapping']) && count($routeConfiguration['mapping']) > 0) {
-										foreach ($routeConfiguration['mapping'] as $param => $accessorPath) {
-											$cacheConfiguration[$entityIndex]['routes'][$route]['mapping'][$param] = $this->accessor->getValue($entity, $accessorPath);
-										}
-									}
+								$originalDataEntity = unserialize(serialize($this->entity));
+								foreach ($changeset as $field => $values) {
+									call_user_func(array($originalDataEntity, 'set' . ucfirst($field)), $values[0]);
+								}
 
-									$routeConfiguration = $cacheConfiguration[$entityIndex]['routes'][$route];
+								if ($routeConfiguration['refresh_with_original_params']) {
+									$refreshEntities[] = $originalDataEntity;
+								}
 
-									/**
-									 * Iterate over locales
-									 */
-									foreach ($this->locales as $locale) {
-										/**
-										 * Merge mapping with locale
-										 */
-										$params = array('_locale' => $locale);
-										if (isset($routeConfiguration['mapping']) && count($routeConfiguration['mapping']) > 0) {
-											$params = array_merge(array(
-												'_locale' => $locale
-											), $routeConfiguration['mapping']);
-										}
-
-										/**
-										 * Generate and refresh routes
-										 */
-										$path = $this->router->generate($route, $params, true);
-										$this->cacheManager->refreshPath($path);
-									}
-								} catch (UnexpectedTypeException $e) {}
+								if ($routeConfiguration['invalidate_with_original_params']) {
+									$invalidateEntities[] = $originalDataEntity;
+								}
 							}
+
+							if (count($refreshEntities) > 0) {
+								$this->process($refreshEntities, $cacheConfiguration, $routeConfiguration, $entityIndex, $route, 'refresh');
+							}
+							if (count($invalidateEntities) > 0) {
+								$this->process($invalidateEntities, $cacheConfiguration, $routeConfiguration, $entityIndex, $route, 'invalidate');
+							}
+
+
 						}
 					}
 				}
@@ -158,6 +150,68 @@ class CacheListener extends ContainerAware {
 	 */
 	public function postUpdate(LifecycleEventArgs $args) {
 
+
+	}
+
+	/**
+	 * @param array $entities
+	 * @param $entityIndex
+	 * @param $route
+	 * @param string $type
+	 */
+	private function process(array $entities, $cacheConfiguration, $routeConfiguration, $entityIndex, $route, $type = 'refresh') {
+		/**
+		 * Iterate over the entities
+		 */
+		foreach ($entities as $entity) {
+
+			/**
+			 * Use accessor component to get entity properties
+			 */
+			try {
+				if (isset($routeConfiguration['mapping']) && count($routeConfiguration['mapping']) > 0) {
+					foreach ($routeConfiguration['mapping'] as $param => $accessorPath) {
+						$cacheConfiguration['entities'][$entityIndex]['routes'][$route]['mapping'][$param] = $this->accessor->getValue($entity, $accessorPath);
+
+
+					}
+				}
+
+				$routeConfiguration = $cacheConfiguration['entities'][$entityIndex]['routes'][$route];
+
+				/**
+				 * Iterate over locales
+				 */
+				foreach ($this->locales as $locale) {
+					/**
+					 * Merge mapping with locale
+					 */
+					$params = array('_locale' => $locale);
+					if (isset($routeConfiguration['mapping']) && count($routeConfiguration['mapping']) > 0) {
+						$params = array_merge(array(
+							'_locale' => $locale
+						), $routeConfiguration['mapping']);
+					}
+
+					/**
+					 * Generate and refresh/invalidate routes
+					 */
+					$path = $this->router->generate($route, $params, true);
+					switch($type) {
+						case 'refresh':
+							$this->cacheManager->refreshPath($path);
+							break;
+						case 'invalidate':
+
+							$this->cacheManager->invalidatePath($path);
+							break;
+					}
+
+				}
+			} catch (UnexpectedTypeException $e) {
+
+			}
+		}
 
 	}
 
