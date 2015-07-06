@@ -37,6 +37,7 @@ class Configuration implements ConfigurationInterface
 								->useAttributeAsKey('route')
 								->prototype('array')
 									->children()
+										->scalarNode('one_to_many')->end()
 										->scalarNode('listenTo')->end()
 										->booleanNode('invalidate_with_original_params')
 											->defaultFalse()
