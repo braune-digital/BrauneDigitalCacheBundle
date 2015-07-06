@@ -5,6 +5,7 @@ namespace BrauneDigital\CacheBundle\EventListener;
 use Application\AppBundle\Entity\Offer;
 use Doctrine\ORM\Event\LifecycleEventArgs;
 use Application\AppBundle\Entity\OfferTranslation;
+use Doctrine\ORM\Event\PostFlushEventArgs;
 use FOS\HttpCacheBundle\Configuration\InvalidatePath;
 use Symfony\Component\Debug\Exception\ContextErrorException;
 use Symfony\Component\DependencyInjection\ContainerAware;
@@ -14,6 +15,7 @@ use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Event\FilterResponseEvent;
 use Symfony\Component\HttpKernel\Event\GetResponseEvent;
 use Symfony\Component\HttpKernel\Event\GetResponseForControllerResultEvent;
+use Symfony\Component\HttpKernel\HttpKernelInterface;
 use Symfony\Component\HttpKernel\Kernel;
 use Symfony\Component\PropertyAccess\Exception\UnexpectedTypeException;
 use Symfony\Component\Routing\RouterInterface;
@@ -29,6 +31,7 @@ class CacheListener extends ContainerAware {
 	protected $locales;
 	protected $changeset;
 	protected $accessor;
+	protected $newPath = array();
 
 	/**
 	 * @param ContainerInterface $container
@@ -42,7 +45,7 @@ class CacheListener extends ContainerAware {
 	 * @param LifecycleEventArgs $args
 	 */
 	public function prePersist(LifecycleEventArgs $args) {
-		$this->preUpdate($args);
+
 	}
 
 	/**
@@ -55,7 +58,12 @@ class CacheListener extends ContainerAware {
 	/**
 	 * @param LifecycleEventArgs $args
 	 */
-	public function preUpdate(LifecycleEventArgs $args) {
+	public function postUpdate(LifecycleEventArgs $args) {
+
+
+		if (get_class($args->getEntity()) == 'BrauneDigital\RedirectBundle\Entity\Redirect') {
+			return;
+		}
 
 		$this->prepare($args);
 		$cacheConfiguration = $this->container->getParameter('braune_digital_cache');
@@ -80,6 +88,7 @@ class CacheListener extends ContainerAware {
 
 				if (get_class($this->entity) == $entityConfig['entity'] or $entityIsTranslation) {
 					if ($entityIsTranslation) {
+						$translationEntity = $this->entity;
 						$this->entity = $this->entity->getTranslatable();
 					}
 
@@ -103,17 +112,12 @@ class CacheListener extends ContainerAware {
 							/**
 							 * Get the original entity to update routes with old data.
 							 */
-							$entities = array($this->entity);
-							if ($routeConfiguration['refresh_with_original_params']) {
-								$entities[] = (object) $args->getEntityManager()->getUnitOfWork()->getOriginalEntityData($this->entity);
-							}
+							$refreshEntities = array($this->entity);
+							$invalidateEntities = array();
 
 							/**
-							 * Iterate over the entities
+							 * Check if there are routes from old properties that should be invalidated
 							 */
-<<<<<<< Updated upstream
-							foreach ($entities as $entity) {
-=======
 							if ($routeConfiguration['refresh_with_original_params'] || $routeConfiguration['invalidate_with_original_params']) {
 								if ($entityIsTranslation) {
 									$changeset = $args->getEntityManager()->getUnitOfWork()->getEntityChangeSet($translationEntity);
@@ -131,42 +135,19 @@ class CacheListener extends ContainerAware {
 								if ($routeConfiguration['refresh_with_original_params']) {
 									$refreshEntities[] = $originalDataEntity;
 								}
->>>>>>> Stashed changes
 
-								/**
-								 * Use accessor component to get entity properties
-								 */
-								try {
-									if (isset($routeConfiguration['mapping']) && count($routeConfiguration['mapping']) > 0) {
-										foreach ($routeConfiguration['mapping'] as $param => $accessorPath) {
-											$cacheConfiguration[$entityIndex]['routes'][$route]['mapping'][$param] = $this->accessor->getValue($entity, $accessorPath);
-										}
-									}
-
-									$routeConfiguration = $cacheConfiguration[$entityIndex]['routes'][$route];
-
-									/**
-									 * Iterate over locales
-									 */
-									foreach ($this->locales as $locale) {
-										/**
-										 * Merge mapping with locale
-										 */
-										$params = array('_locale' => $locale);
-										if (isset($routeConfiguration['mapping']) && count($routeConfiguration['mapping']) > 0) {
-											$params = array_merge(array(
-												'_locale' => $locale
-											), $routeConfiguration['mapping']);
-										}
-
-										/**
-										 * Generate and refresh routes
-										 */
-										$path = $this->router->generate($route, $params, true);
-										$this->cacheManager->refreshPath($path);
-									}
-								} catch (UnexpectedTypeException $e) {}
+								if ($routeConfiguration['invalidate_with_original_params']) {
+									$invalidateEntities[] = $originalDataEntity;
+								}
 							}
+
+							if (count($refreshEntities) > 0) {
+								$this->process($refreshEntities, $cacheConfiguration, $routeConfiguration, $entityIndex, $route, 'refresh');
+							}
+							if (count($invalidateEntities) > 0) {
+								$this->process($invalidateEntities, $cacheConfiguration, $routeConfiguration, $entityIndex, $route, 'invalidate');
+							}
+
 						}
 					}
 				}
@@ -177,10 +158,79 @@ class CacheListener extends ContainerAware {
 	/**
 	 * @param LifecycleEventArgs $args
 	 */
-	public function postUpdate(LifecycleEventArgs $args) {
+	public function preUpdate(LifecycleEventArgs $args) {
 
 
 	}
+
+	/**
+	 * @param array $entities
+	 * @param $entityIndex
+	 * @param $route
+	 * @param string $type
+	 */
+	private function process(array $entities, $cacheConfiguration, $routeConfiguration, $entityIndex, $route, $type = 'refresh') {
+		/**
+		 * Iterate over the entities
+		 */
+		foreach ($entities as $entity) {
+
+			/**
+			 * Use accessor component to get entity properties
+			 */
+			try {
+				if (isset($routeConfiguration['mapping']) && count($routeConfiguration['mapping']) > 0) {
+					foreach ($routeConfiguration['mapping'] as $param => $accessorPath) {
+						$cacheConfiguration['entities'][$entityIndex]['routes'][$route]['mapping'][$param] = $this->accessor->getValue($entity, $accessorPath);
+					}
+				}
+
+				$routeConfiguration = $cacheConfiguration['entities'][$entityIndex]['routes'][$route];
+
+				/**
+				 * Iterate over locales
+				 */
+				foreach ($this->locales as $locale) {
+					/**
+					 * Merge mapping with locale
+					 */
+					$params = array('_locale' => $locale);
+					if (isset($routeConfiguration['mapping']) && count($routeConfiguration['mapping']) > 0) {
+						$params = array_merge(array(
+							'_locale' => $locale
+						), $routeConfiguration['mapping']);
+					}
+
+					/**
+					 * Generate and refresh/invalidate routes
+					 */
+					$path = $this->router->generate($route, $params, true);
+					$pathRelative = $this->router->generate($route, $params, false);
+					switch($type) {
+						case 'refresh':
+							$this->newPath[$locale] = $pathRelative;
+							$this->cacheManager->refreshPath($path);
+							break;
+						case 'invalidate':
+							$this->cacheManager->invalidatePath($path);
+							if ($this->newPath) {
+								try {
+									$redirectManager = $this->container->get('braunedigital.redirect.manager');
+									$redirectManager->create($pathRelative, $this->newPath[$locale], Response::HTTP_MOVED_PERMANENTLY);
+								} catch(\Exception $e) {}
+							}
+
+							break;
+					}
+
+				}
+			} catch (UnexpectedTypeException $e) {
+
+			}
+		}
+
+	}
+
 
 	/**
 	 * @param array $fields
