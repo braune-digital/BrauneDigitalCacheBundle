@@ -6,6 +6,7 @@ use Application\AppBundle\Entity\Offer;
 use Doctrine\ORM\Event\LifecycleEventArgs;
 use Application\AppBundle\Entity\OfferTranslation;
 use FOS\HttpCacheBundle\Configuration\InvalidatePath;
+use Symfony\Component\Debug\Exception\ContextErrorException;
 use Symfony\Component\DependencyInjection\ContainerAware;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\RequestStack;
@@ -110,7 +111,27 @@ class CacheListener extends ContainerAware {
 							/**
 							 * Iterate over the entities
 							 */
+<<<<<<< Updated upstream
 							foreach ($entities as $entity) {
+=======
+							if ($routeConfiguration['refresh_with_original_params'] || $routeConfiguration['invalidate_with_original_params']) {
+								if ($entityIsTranslation) {
+									$changeset = $args->getEntityManager()->getUnitOfWork()->getEntityChangeSet($translationEntity);
+								} else {
+									$changeset = $args->getEntityManager()->getUnitOfWork()->getEntityChangeSet($this->entity);
+								}
+
+								$originalDataEntity = unserialize(serialize($this->entity));
+								foreach ($changeset as $field => $values) {
+									try {
+										call_user_func(array($originalDataEntity, 'set' . ucfirst($field)), $values[0]);
+									} catch (ContextErrorException $e) {}
+								}
+
+								if ($routeConfiguration['refresh_with_original_params']) {
+									$refreshEntities[] = $originalDataEntity;
+								}
+>>>>>>> Stashed changes
 
 								/**
 								 * Use accessor component to get entity properties
