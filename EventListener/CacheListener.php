@@ -32,6 +32,7 @@ class CacheListener extends ContainerAware {
 	protected $changeset;
 	protected $accessor;
 	protected $newPath = array();
+	protected $invalidateEntities = array();
 
 	/**
 	 * @param ContainerInterface $container
@@ -45,7 +46,7 @@ class CacheListener extends ContainerAware {
 	 * @param LifecycleEventArgs $args
 	 */
 	public function prePersist(LifecycleEventArgs $args) {
-
+		return;
 	}
 
 	/**
@@ -58,9 +59,20 @@ class CacheListener extends ContainerAware {
 	/**
 	 * @param LifecycleEventArgs $args
 	 */
+	public function preUpdate(LifecycleEventArgs $args) {
+		$this->invalidateEntities = array();
+		$this->refreshAndInvalidate($args, 'invalidate');
+	}
+
+	/**
+	 * @param LifecycleEventArgs $args
+	 */
 	public function postUpdate(LifecycleEventArgs $args) {
+		$this->refreshAndInvalidate($args, 'refresh');
+	}
 
 
+	private function refreshAndInvalidate(LifecycleEventArgs $args, $type = 'refresh') {
 		if (get_class($args->getEntity()) == 'BrauneDigital\RedirectBundle\Entity\Redirect') {
 			return;
 		}
@@ -112,8 +124,8 @@ class CacheListener extends ContainerAware {
 							/**
 							 * Get the original entity to update routes with old data.
 							 */
-							$refreshEntities = array($this->entity);
-							$invalidateEntities = array();
+							$refreshEntities = array();
+
 
 							/**
 							 * Check if there are routes from old properties that should be invalidated
@@ -132,34 +144,33 @@ class CacheListener extends ContainerAware {
 									} catch (ContextErrorException $e) {}
 								}
 
-								if ($routeConfiguration['refresh_with_original_params']) {
-									$refreshEntities[] = $originalDataEntity;
+								switch ($type) {
+									case 'refresh':
+										$refreshEntities[] = $this->entity;
+										if ($routeConfiguration['refresh_with_original_params']) {
+											$refreshEntities[] = $originalDataEntity;
+										}
+										if (count($refreshEntities) > 0) {
+											$this->process($refreshEntities, $cacheConfiguration, $routeConfiguration, $entityIndex, $route, 'refresh');
+										}
+										var_dump(count($this->invalidateEntities));
+										if (count($this->invalidateEntities) > 0) {
+											$this->process($this->invalidateEntities, $cacheConfiguration, $routeConfiguration, $entityIndex, $route, 'invalidate');
+										}
+										break;
+
+									case 'invalidate':
+										if ($routeConfiguration['invalidate_with_original_params']) {
+											$this->invalidateEntities[] = $originalDataEntity;
+										}
+										break;
 								}
-
-								if ($routeConfiguration['invalidate_with_original_params']) {
-									$invalidateEntities[] = $originalDataEntity;
-								}
 							}
-
-							if (count($refreshEntities) > 0) {
-								$this->process($refreshEntities, $cacheConfiguration, $routeConfiguration, $entityIndex, $route, 'refresh');
-							}
-							if (count($invalidateEntities) > 0) {
-								$this->process($invalidateEntities, $cacheConfiguration, $routeConfiguration, $entityIndex, $route, 'invalidate');
-							}
-
 						}
 					}
 				}
 			}
 		}
-	}
-
-	/**
-	 * @param LifecycleEventArgs $args
-	 */
-	public function preUpdate(LifecycleEventArgs $args) {
-
 
 	}
 
@@ -206,12 +217,15 @@ class CacheListener extends ContainerAware {
 					 */
 					$path = $this->router->generate($route, $params, true);
 					$pathRelative = $this->router->generate($route, $params, false);
+
+
 					switch($type) {
 						case 'refresh':
 							$this->newPath[$locale] = $pathRelative;
 							$this->cacheManager->refreshPath($path);
 							break;
 						case 'invalidate':
+									var_dump($this->newPath);
 							$this->cacheManager->invalidatePath($path);
 							if ($this->newPath) {
 								try {
