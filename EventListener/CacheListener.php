@@ -153,7 +153,6 @@ class CacheListener extends ContainerAware {
 										if (count($refreshEntities) > 0) {
 											$this->process($refreshEntities, $cacheConfiguration, $routeConfiguration, $entityIndex, $route, 'refresh');
 										}
-										var_dump(count($this->invalidateEntities));
 										if (count($this->invalidateEntities) > 0) {
 											$this->process($this->invalidateEntities, $cacheConfiguration, $routeConfiguration, $entityIndex, $route, 'invalidate');
 										}
