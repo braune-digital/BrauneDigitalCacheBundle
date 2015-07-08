@@ -241,10 +241,9 @@ class CacheListener extends ContainerAware {
 						$path = $this->router->generate($route, $params, true);
 						$pathRelative = $this->router->generate($route, $params, false);
 
-
 						switch($type) {
 							case 'refresh':
-								if (!is_array($this->newPath[$route])) {
+								if (!array_key_exists($route, $this->newPath) || !is_array($this->newPath[$route])) {
 									$this->newPath[$route] = array();
 								}
 								$this->newPath[$route][$locale] = $pathRelative;
